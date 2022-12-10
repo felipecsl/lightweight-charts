@@ -182,6 +182,10 @@ export class SeriesApi<TSeriesType extends SeriesType> implements ISeriesApi<TSe
 		this._series.removePriceLine((line as PriceLine).priceLine());
 	}
 
+	public clearPriceLines(): void {
+		this._series.clearPriceLines();
+	}
+
 	public seriesType(): TSeriesType {
 		return this._series.seriesType();
 	}

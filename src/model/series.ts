@@ -16,8 +16,12 @@ import { IPaneView } from '../views/pane/ipane-view';
 import { IUpdatablePaneView } from '../views/pane/iupdatable-pane-view';
 import { SeriesLinePaneView } from '../views/pane/line-pane-view';
 import { PanePriceAxisView } from '../views/pane/pane-price-axis-view';
-import { SeriesHorizontalBaseLinePaneView } from '../views/pane/series-horizontal-base-line-pane-view';
-import { SeriesLastPriceAnimationPaneView } from '../views/pane/series-last-price-animation-pane-view';
+import {
+	SeriesHorizontalBaseLinePaneView,
+} from '../views/pane/series-horizontal-base-line-pane-view';
+import {
+	SeriesLastPriceAnimationPaneView,
+} from '../views/pane/series-last-price-animation-pane-view';
 import { SeriesMarkersPaneView } from '../views/pane/series-markers-pane-view';
 import { SeriesPriceLinePaneView } from '../views/pane/series-price-line-pane-view';
 import { IPriceAxisView } from '../views/price-axis/iprice-axis-view';
@@ -295,6 +299,11 @@ export class Series<T extends SeriesType = SeriesType> extends PriceDataSource i
 		this.model().updateSource(this);
 	}
 
+	public clearPriceLines(): void {
+		this._customPriceLines.splice(0, this._customPriceLines.length);
+		this.model().updateSource(this);
+	}
+
 	public seriesType(): T {
 		return this._seriesType;
 	}
@@ -493,7 +502,7 @@ export class Series<T extends SeriesType = SeriesType> extends PriceDataSource i
 			range = range !== null ? range.merge(rangeWithBase) : rangeWithBase;
 		}
 
-		return new AutoscaleInfoImpl(range,	this._markersPaneView.autoScaleMargins());
+		return new AutoscaleInfoImpl(range, this._markersPaneView.autoScaleMargins());
 	}
 
 	private _markerRadius(): number {
@@ -639,7 +648,8 @@ export class Series<T extends SeriesType = SeriesType> extends PriceDataSource i
 				break;
 			}
 
-			default: throw Error('Unknown chart style assigned: ' + this._seriesType);
+			default:
+				throw Error('Unknown chart style assigned: ' + this._seriesType);
 		}
 	}
 }

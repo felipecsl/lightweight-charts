@@ -238,6 +238,11 @@ export interface ISeriesApi<TSeriesType extends SeriesType> {
 	createPriceLine(options: CreatePriceLineOptions): IPriceLine;
 
 	/**
+	 * Removes all price lines from the chart
+	 */
+	clearPriceLines(): void;
+
+	/**
 	 * Removes the price line that was created before.
 	 *
 	 * @param line - A line to remove.
