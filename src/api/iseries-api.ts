@@ -1,20 +1,21 @@
-import { IPriceFormatter } from '../formatters/iprice-formatter';
+import { IPriceFormatter } from "../formatters/iprice-formatter";
 
-import { BarPrice } from '../model/bar';
-import { Coordinate } from '../model/coordinate';
-import { MismatchDirection } from '../model/plot-list';
-import { CreatePriceLineOptions } from '../model/price-line-options';
-import { SeriesMarker } from '../model/series-markers';
+import { BarPrice } from "../model/bar";
+import { Coordinate } from "../model/coordinate";
+import { CustomPriceLine } from "../model/custom-price-line";
+import { MismatchDirection } from "../model/plot-list";
+import { CreatePriceLineOptions } from "../model/price-line-options";
+import { SeriesMarker } from "../model/series-markers";
 import {
 	SeriesOptionsMap,
 	SeriesPartialOptionsMap,
 	SeriesType,
-} from '../model/series-options';
-import { Range, Time } from '../model/time-data';
+} from "../model/series-options";
+import { Range, Time } from "../model/time-data";
 
-import { SeriesDataItemTypeMap } from './data-consumer';
-import { IPriceLine } from './iprice-line';
-import { IPriceScaleApi } from './iprice-scale-api';
+import { SeriesDataItemTypeMap } from "./data-consumer";
+import { IPriceLine } from "./iprice-line";
+import { IPriceScaleApi } from "./iprice-scale-api";
 
 /**
  * Represents a range of bars and the number of bars outside the range.
@@ -170,7 +171,10 @@ export interface ISeriesApi<TSeriesType extends SeriesType> {
 	 * const originalData = series.dataByIndex(10, LightweightCharts.MismatchDirection.NearestLeft);
 	 * ```
 	 */
-	dataByIndex(logicalIndex: number, mismatchDirection?: MismatchDirection): SeriesDataItemTypeMap[TSeriesType] | null;
+	dataByIndex(
+		logicalIndex: number,
+		mismatchDirection?: MismatchDirection
+	): SeriesDataItemTypeMap[TSeriesType] | null;
 
 	/**
 	 * Allows to set/replace all existing series markers with new ones.
@@ -236,6 +240,16 @@ export interface ISeriesApi<TSeriesType extends SeriesType> {
 	 * ```
 	 */
 	createPriceLine(options: CreatePriceLineOptions): IPriceLine;
+
+	/**
+	 * Removes all price lines from the chart
+	 */
+	clearPriceLines(): void;
+
+	/**
+	 * List all price lines from the chart
+	 */
+	priceLines(): CustomPriceLine[] ;
 
 	/**
 	 * Removes the price line that was created before.
