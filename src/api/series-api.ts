@@ -5,6 +5,7 @@ import { clone, merge } from '../helpers/strict-type-checks';
 
 import { BarPrice } from '../model/bar';
 import { Coordinate } from '../model/coordinate';
+import { CustomPriceLine } from '../model/custom-price-line';
 import { MismatchDirection } from '../model/plot-list';
 import { CreatePriceLineOptions, PriceLineOptions } from '../model/price-line-options';
 import { RangeImpl } from '../model/range-impl';
@@ -186,8 +187,8 @@ export class SeriesApi<TSeriesType extends SeriesType> implements ISeriesApi<TSe
 		this._series.clearPriceLines();
 	}
 
-	public priceLines(): void {
-		this._series.priceLines();
+	public priceLines(): CustomPriceLine[] {
+		return this._series.priceLines();
 	}
 
 	public seriesType(): TSeriesType {

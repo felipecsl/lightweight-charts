@@ -2,6 +2,7 @@ import { IPriceFormatter } from "../formatters/iprice-formatter";
 
 import { BarPrice } from "../model/bar";
 import { Coordinate } from "../model/coordinate";
+import { CustomPriceLine } from "../model/custom-price-line";
 import { MismatchDirection } from "../model/plot-list";
 import { CreatePriceLineOptions } from "../model/price-line-options";
 import { SeriesMarker } from "../model/series-markers";
@@ -248,7 +249,7 @@ export interface ISeriesApi<TSeriesType extends SeriesType> {
 	/**
 	 * List all price lines from the chart
 	 */
-	priceLines(): void;
+	priceLines(): CustomPriceLine[] ;
 
 	/**
 	 * Removes the price line that was created before.
