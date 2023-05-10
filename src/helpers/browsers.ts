@@ -1,10 +1,10 @@
-import { isRunningOnClientSide } from './is-running-on-client-side';
+import { isRunningOnClientSide } from "./is-running-on-client-side";
 
 export function isFF(): boolean {
 	if (!isRunningOnClientSide) {
 		return false;
 	}
-	return window.navigator.userAgent.toLowerCase().indexOf('firefox') > -1;
+	return window.navigator.userAgent.toLowerCase().indexOf("firefox") > -1;
 }
 
 export function isIOS(): boolean {
@@ -24,21 +24,25 @@ export function isChrome(): boolean {
 
 // Determine whether the browser is running on windows.
 export function isWindows(): boolean {
-	// more accurate if available
-	if (
-		navigator?.userAgentData?.platform
-	) {
-		return navigator.userAgentData.platform === 'Windows';
+	if (!isRunningOnClientSide) {
+		return false;
 	}
-	return navigator.userAgent.toLowerCase().indexOf('win') >= 0;
+	// more accurate if available
+	if (navigator?.userAgentData?.platform) {
+		return navigator.userAgentData.platform === "Windows";
+	}
+	return navigator.userAgent.toLowerCase().indexOf("win") >= 0;
 }
 
 // Determine whether the browser is Chromium based.
 export function isChromiumBased(): boolean {
-	if (!navigator.userAgentData) { return false; }
-	return navigator.userAgentData.brands.some(
-		(brand: UADataBrand) => {
-			return brand.brand.includes('Chromium');
-		}
-	);
+	if (!isRunningOnClientSide) {
+		return false;
+	}
+	if (!navigator.userAgentData) {
+		return false;
+	}
+	return navigator.userAgentData.brands.some((brand: UADataBrand) => {
+		return brand.brand.includes("Chromium");
+	});
 }
