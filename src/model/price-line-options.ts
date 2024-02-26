@@ -51,13 +51,21 @@ export interface PriceLineOptions {
 	 */
 	title: string;
 	/**
+
+  /**
+	 * Boolean indicating whether this price line can be dragged.
+	 */
+	draggable: boolean;
+
+  /**
 	 * Background color for the axis label.
 	 * Will default to the price line color if unspecified.
 	 *
 	 * @defaultValue `''`
 	 */
 	axisLabelColor: string;
-	/**
+	
+  /**
 	 * Text color for the axis label.
 	 *
 	 * @defaultValue `''`
