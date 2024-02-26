@@ -1,7 +1,7 @@
 {
-  "private": true,
-  "version": "4.2.0",
-  "name": "lightweight-charts",
+  "private": false,
+  "version": "4.1.5",
+  "name": "@felipecsl/lightweight-charts",
   "author": "TradingView, Inc.",
   "license": "Apache-2.0",
   "description": "Performant financial charts built with HTML5 canvas",
@@ -108,7 +108,7 @@
     "yargs": "~17.7.2"
   },
   "scripts": {
-    "postinstall": "npm run install-hooks",
+    "postinstall": "",
     "install-hooks": "node scripts/githooks/install.js",
     "clean": "rimraf lib/ dist/",
     "bundle-dts": "tsc --noEmit --allowJs dts-config.js && dts-bundle-generator --config dts-config.js",
