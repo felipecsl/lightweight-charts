@@ -3,13 +3,14 @@ import { isNumber } from '../../helpers/strict-type-checks';
 
 import { AutoScaleMargins } from '../../model/autoscale-info-impl';
 import { BarPrice, BarPrices } from '../../model/bar';
-import { ChartModel } from '../../model/chart-model';
+import { IChartModelBase } from '../../model/chart-model';
 import { Coordinate } from '../../model/coordinate';
 import { PriceScale } from '../../model/price-scale';
-import { Series } from '../../model/series';
+import { ISeries } from '../../model/series';
 import { InternalSeriesMarker } from '../../model/series-markers';
+import { SeriesType } from '../../model/series-options';
 import { TimePointIndex, visibleTimedValues } from '../../model/time-data';
-import { TimeScale } from '../../model/time-scale';
+import { ITimeScale } from '../../model/time-scale';
 import { IPaneRenderer } from '../../renderers/ipane-renderer';
 import {
 	SeriesMarkerRendererData,
@@ -41,7 +42,7 @@ function fillSizeAndY(
 	textHeight: number,
 	shapeMargin: number,
 	priceScale: PriceScale,
-	timeScale: TimeScale,
+	timeScale: ITimeScale,
 	firstValue: number
 ): void {
 	const inBarPrice = isNumber(seriesData) ? seriesData : seriesData.close;
@@ -84,8 +85,8 @@ function fillSizeAndY(
 }
 
 export class SeriesMarkersPaneView implements IUpdatablePaneView {
-	private readonly _series: Series;
-	private readonly _model: ChartModel;
+	private readonly _series: ISeries<SeriesType>;
+	private readonly _model: IChartModelBase;
 	private _data: SeriesMarkerRendererData;
 
 	private _invalidated: boolean = true;
@@ -96,7 +97,7 @@ export class SeriesMarkersPaneView implements IUpdatablePaneView {
 
 	private _renderer: SeriesMarkersRenderer = new SeriesMarkersRenderer();
 
-	public constructor(series: Series, model: ChartModel) {
+	public constructor(series: ISeries<SeriesType>, model: IChartModelBase) {
 		this._series = series;
 		this._model = model;
 		this._data = {
@@ -113,7 +114,7 @@ export class SeriesMarkersPaneView implements IUpdatablePaneView {
 		}
 	}
 
-	public renderer(height: number, width: number, addAnchors?: boolean): IPaneRenderer | null {
+	public renderer(addAnchors?: boolean): IPaneRenderer | null {
 		if (!this._series.visible()) {
 			return null;
 		}
@@ -204,6 +205,7 @@ export class SeriesMarkersPaneView implements IUpdatablePaneView {
 			if (marker.text !== undefined && marker.text.length > 0) {
 				rendererItem.text = {
 					content: marker.text,
+					x: 0 as Coordinate,
 					y: 0 as Coordinate,
 					width: 0,
 					height: 0,

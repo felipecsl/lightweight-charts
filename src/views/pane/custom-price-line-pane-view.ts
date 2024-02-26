@@ -1,17 +1,18 @@
 import { CustomPriceLine } from '../../model/custom-price-line';
-import { Series } from '../../model/series';
+import { ISeries } from '../../model/series';
+import { SeriesType } from '../../model/series-options';
 
 import { SeriesHorizontalLinePaneView } from './series-horizontal-line-pane-view';
 
 export class CustomPriceLinePaneView extends SeriesHorizontalLinePaneView {
 	private readonly _priceLine: CustomPriceLine;
 
-	public constructor(series: Series, priceLine: CustomPriceLine) {
+	public constructor(series: ISeries<SeriesType>, priceLine: CustomPriceLine) {
 		super(series);
 		this._priceLine = priceLine;
 	}
 
-	protected _updateImpl(height: number, width: number): void {
+	protected _updateImpl(): void {
 		const data = this._lineRendererData;
 		data.visible = false;
 
@@ -29,8 +30,6 @@ export class CustomPriceLinePaneView extends SeriesHorizontalLinePaneView {
 		data.visible = true;
 		data.y = y;
 		data.color = lineOptions.color;
-		data.width = width;
-		data.height = height;
 		data.lineWidth = lineOptions.lineWidth;
 		data.lineStyle = lineOptions.lineStyle;
 		data.externalId = this._priceLine.options().id;

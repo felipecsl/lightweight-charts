@@ -24,8 +24,12 @@ export function replaceThemeConstantStrings(originalString, isDarkTheme) {
 	return result;
 }
 
+export function removeUnwantedLines(originalString) {
+	return originalString.replace(new RegExp(/\/\/ delete-start[\w\W]*?\/\/ delete-end/, 'gm'), '');
+}
+
 const EnhancedCodeBlock = props => {
-	const { chart, replaceThemeConstants, hideableCode, ...rest } = props;
+	const { chart, replaceThemeConstants, hideableCode, chartOnly, iframeStyle, ...rest } = props;
 	let { children } = props;
 	const { colorMode } = useColorMode();
 	const isDarkTheme = colorMode === 'dark';
@@ -34,6 +38,7 @@ const EnhancedCodeBlock = props => {
 	if (replaceThemeConstants && typeof children === 'string') {
 		children = replaceThemeConstantStrings(children, isDarkTheme);
 	}
+	children = removeUnwantedLines(children);
 
 	if (chart || hideableCode) {
 		return (
@@ -45,8 +50,8 @@ const EnhancedCodeBlock = props => {
 						className="toggle-hidden-lines"
 					/>
 					<label className="toggle-label" htmlFor={uniqueId}>Show all code</label></>}
-				<CodeBlock {...rest}>{children}</CodeBlock>
-				{chart && <BrowserOnly fallback={<div className={styles.iframe}>&nbsp;</div>}>{() => <Chart script={children} />}</BrowserOnly>}
+				{!chartOnly && <CodeBlock {...rest}>{children}</CodeBlock>}
+				{chart && <BrowserOnly fallback={<div className={styles.iframe}>&nbsp;</div>}>{() => <Chart script={children} iframeStyle={iframeStyle} />}</BrowserOnly>}
 			</>
 		);
 	}

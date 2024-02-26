@@ -1,16 +1,16 @@
-import { ChartModel } from '../../model/chart-model';
+import { IChartModelBase } from '../../model/chart-model';
 import { PriceScale } from '../../model/price-scale';
-import { Series } from '../../model/series';
+import { ISeries } from '../../model/series';
 import { SeriesType } from '../../model/series-options';
 import { SeriesItemsIndexesRange, TimedValue, visibleTimedValues } from '../../model/time-data';
-import { TimeScale } from '../../model/time-scale';
+import { ITimeScale } from '../../model/time-scale';
 import { IPaneRenderer } from '../../renderers/ipane-renderer';
 
 import { IUpdatablePaneView, UpdateType } from './iupdatable-pane-view';
 
 export abstract class SeriesPaneViewBase<TSeriesType extends SeriesType, ItemType extends TimedValue, TRenderer extends IPaneRenderer> implements IUpdatablePaneView {
-	protected readonly _series: Series<TSeriesType>;
-	protected readonly _model: ChartModel;
+	protected readonly _series: ISeries<TSeriesType>;
+	protected readonly _model: IChartModelBase;
 	protected _invalidated: boolean = true;
 	protected _dataInvalidated: boolean = true;
 	protected _optionsInvalidated: boolean = true;
@@ -19,7 +19,7 @@ export abstract class SeriesPaneViewBase<TSeriesType extends SeriesType, ItemTyp
 	protected readonly abstract _renderer: TRenderer;
 	private readonly _extendedVisibleRange: boolean;
 
-	public constructor(series: Series<TSeriesType>, model: ChartModel, extendedVisibleRange: boolean) {
+	public constructor(series: ISeries<TSeriesType>, model: IChartModelBase, extendedVisibleRange: boolean) {
 		this._series = series;
 		this._model = model;
 		this._extendedVisibleRange = extendedVisibleRange;
@@ -35,12 +35,12 @@ export abstract class SeriesPaneViewBase<TSeriesType extends SeriesType, ItemTyp
 		}
 	}
 
-	public renderer(height: number, width: number): IPaneRenderer | null {
+	public renderer(): IPaneRenderer | null {
 		if (!this._series.visible()) {
 			return null;
 		}
 
-		this._makeValid(width, height);
+		this._makeValid();
 
 		return this._itemsVisibleRange === null ? null : this._renderer;
 	}
@@ -54,15 +54,15 @@ export abstract class SeriesPaneViewBase<TSeriesType extends SeriesType, ItemTyp
 		}));
 	}
 
-	protected abstract _convertToCoordinates(priceScale: PriceScale, timeScale: TimeScale, firstValue: number): void;
+	protected abstract _convertToCoordinates(priceScale: PriceScale, timeScale: ITimeScale, firstValue: number): void;
 
 	protected _clearVisibleRange(): void {
 		this._itemsVisibleRange = null;
 	}
 
-	protected abstract _prepareRendererData(width: number, height: number): void;
+	protected abstract _prepareRendererData(): void;
 
-	private _makeValid(width: number, height: number): void {
+	private _makeValid(): void {
 		if (this._dataInvalidated) {
 			this._fillRawPoints();
 			this._dataInvalidated = false;
@@ -74,12 +74,12 @@ export abstract class SeriesPaneViewBase<TSeriesType extends SeriesType, ItemTyp
 		}
 
 		if (this._invalidated) {
-			this._makeValidImpl(width, height);
+			this._makeValidImpl();
 			this._invalidated = false;
 		}
 	}
 
-	private _makeValidImpl(width: number, height: number): void {
+	private _makeValidImpl(): void {
 		const priceScale = this._series.priceScale();
 		const timeScale = this._model.timeScale();
 
@@ -106,6 +106,6 @@ export abstract class SeriesPaneViewBase<TSeriesType extends SeriesType, ItemTyp
 		this._itemsVisibleRange = visibleTimedValues(this._items, visibleBars, this._extendedVisibleRange);
 		this._convertToCoordinates(priceScale, timeScale, firstValue.value);
 
-		this._prepareRendererData(width, height);
+		this._prepareRendererData();
 	}
 }

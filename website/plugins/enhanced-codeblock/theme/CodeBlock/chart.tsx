@@ -8,6 +8,7 @@ import styles from './styles.module.css';
 
 interface ChartProps {
 	script: string;
+	iframeStyle?: React.CSSProperties;
 }
 
 type IFrameWindow<TVersion extends keyof LightweightChartsApiTypeMap> = Window & {
@@ -36,8 +37,8 @@ function getSrcDocWithScript(script: string): string {
 	`;
 }
 
-export function Chart<TVersion extends keyof LightweightChartsApiTypeMap>(props: ChartProps): JSX.Element {
-	const { script } = props;
+export function Chart<TVersion extends keyof LightweightChartsApiTypeMap>(props: ChartProps): React.JSX.Element {
+	const { script, iframeStyle } = props;
 	const { preferredVersion } = useDocsPreferredVersion() as { preferredVersion: (PropVersionMetadata & { name: string }) | null };
 	const currentVersion = versions && versions.length > 0 ? versions[0] : '';
 	const version = (preferredVersion?.name ?? currentVersion ?? 'current') as TVersion;
@@ -89,6 +90,7 @@ export function Chart<TVersion extends keyof LightweightChartsApiTypeMap>(props:
 			ref={ref}
 			srcDoc={srcDoc}
 			className={styles.iframe}
+			style={iframeStyle}
 		/>
 	);
 }

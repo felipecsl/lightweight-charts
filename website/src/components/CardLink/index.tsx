@@ -10,7 +10,7 @@ function CardContainer({
 }: {
 	href: string;
 	children: ReactNode;
-}): JSX.Element {
+}): React.JSX.Element {
 	return (
 		<Link
 			href={href}
@@ -27,23 +27,25 @@ function CardLayout({
 	title,
 	description,
 	image,
+	wrapDescription = false,
 }: {
 	href: string;
 	title: string;
 	description?: string;
 	image?: ReactNode;
 	icon?: ReactNode;
-}): JSX.Element {
+	wrapDescription: boolean;
+}): React.JSX.Element {
 	return (
 		<CardContainer href={href}>
 			{image && <div className={clsx(styles.cardImage)}>{image}</div>}
-			<div className={clsx(styles.cardDetails)}>
-				<h2 className={clsx('text--truncate', styles.cardTitle)} title={title}>
+			<div className={clsx(styles.cardDetails, wrapDescription && styles.centerDetails)}>
+				<h2 className={clsx(wrapDescription && styles.noBottomMargin, 'text--truncate', styles.cardTitle)} title={title}>
 					{icon} {title}
 				</h2>
 				{description && (
 					<p
-						className={clsx('text--truncate', styles.cardDescription)}
+						className={clsx(wrapDescription ? styles.noWrap : 'text--truncate', styles.cardDescription)}
 						title={description}
 					>
 						{description}
@@ -64,9 +66,11 @@ export interface CardLinkItem {
 
 export default function CardLink({
 	item,
+	frontPage = false,
 }: {
 	item: CardLinkItem;
-}): JSX.Element {
+	frontPage: boolean;
+}): React.JSX.Element {
 	return (
 		<CardLayout
 			href={item.href}
@@ -74,6 +78,7 @@ export default function CardLink({
 			title={item.title}
 			description={item.description}
 			image={item.image}
+			wrapDescription={frontPage}
 		/>
 	);
 }

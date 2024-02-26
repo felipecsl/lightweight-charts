@@ -1,10 +1,12 @@
+import { CanvasRenderingTarget2D } from 'fancy-canvas';
+
 import { TextWidthCache } from '../model/text-width-cache';
-import { LineWidth } from '../renderers/draw-line';
+
+import { LineWidth } from './draw-line';
 
 export interface PriceAxisViewRendererCommonData {
 	activeBackground?: string;
 	background: string;
-	color: string;
 	coordinate: number;
 	fixedCoordinate?: number;
 	additionalPaddingTop: number;
@@ -40,12 +42,10 @@ export interface PriceAxisViewRendererOptions {
 
 export interface IPriceAxisViewRenderer {
 	draw(
-		ctx: CanvasRenderingContext2D,
+		target: CanvasRenderingTarget2D,
 		rendererOptions: PriceAxisViewRendererOptions,
 		textWidthCache: TextWidthCache,
-		width: number,
-		align: 'left' | 'right',
-		pixelRatio: number
+		align: 'left' | 'right'
 	): void;
 
 	height(rendererOptions: PriceAxisViewRendererOptions, useSecondLine: boolean): number;

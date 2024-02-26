@@ -1,15 +1,16 @@
 import { PriceScaleMode } from '../../model/price-scale';
-import { Series } from '../../model/series';
+import { ISeries } from '../../model/series';
+import { SeriesType } from '../../model/series-options';
 
 import { SeriesHorizontalLinePaneView } from './series-horizontal-line-pane-view';
 
 export class SeriesHorizontalBaseLinePaneView extends SeriesHorizontalLinePaneView {
 	// eslint-disable-next-line no-useless-constructor
-	public constructor(series: Series) {
+	public constructor(series: ISeries<SeriesType>) {
 		super(series);
 	}
 
-	protected _updateImpl(height: number, width: number): void {
+	protected _updateImpl(): void {
 		this._lineRendererData.visible = false;
 
 		const priceScale = this._series.priceScale();
@@ -31,8 +32,6 @@ export class SeriesHorizontalBaseLinePaneView extends SeriesHorizontalLinePaneVi
 
 		this._lineRendererData.visible = true;
 		this._lineRendererData.y = priceScale.priceToCoordinate(firstValue.value, firstValue.value);
-		this._lineRendererData.width = width;
-		this._lineRendererData.height = height;
 		this._lineRendererData.color = seriesOptions.baseLineColor;
 		this._lineRendererData.lineWidth = seriesOptions.baseLineWidth;
 		this._lineRendererData.lineStyle = seriesOptions.baseLineStyle;

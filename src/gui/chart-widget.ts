@@ -1,14 +1,17 @@
+import { Size, size } from 'fancy-canvas';
+
 import { ensureDefined, ensureNotNull } from '../helpers/assertions';
 import { isChromiumBased, isWindows } from '../helpers/browsers';
-import { drawScaled } from '../helpers/canvas-helpers';
 import { Delegate } from '../helpers/delegate';
 import { IDestroyable } from '../helpers/idestroyable';
 import { ISubscription } from '../helpers/isubscription';
+import { warn } from '../helpers/logger';
 import { DeepPartial } from '../helpers/strict-type-checks';
 
-import { ChartModel, ChartOptionsInternal } from '../model/chart-model';
+import { ChartModel, ChartOptionsInternal, ChartOptionsInternalBase, IChartModelBase } from '../model/chart-model';
 import { Coordinate } from '../model/coordinate';
 import { DefaultPriceScaleId } from '../model/default-price-scale';
+import { IHorzScaleBehavior } from '../model/ihorz-scale-behavior';
 import {
 	InvalidateMask,
 	InvalidationLevel,
@@ -18,19 +21,20 @@ import {
 import { Point } from '../model/point';
 import { Series } from '../model/series';
 import { SeriesPlotRow } from '../model/series-data';
-import { OriginalTime, TimePointIndex } from '../model/time-data';
+import { SeriesType } from '../model/series-options';
+import { TimePointIndex } from '../model/time-data';
 import { TouchMouseEventData } from '../model/touch-mouse-event-data';
 
-import { createPreconfiguredCanvas, getCanvasDevicePixelRatio, getContext2D, Size } from './canvas-utils';
+import { suggestChartSize, suggestPriceScaleWidth, suggestTimeScaleHeight } from './internal-layout-sizes-hints';
 import { PaneWidget } from './pane-widget';
 import { TimeAxisWidget } from './time-axis-widget';
 
 export interface MouseEventParamsImpl {
-	time?: OriginalTime;
+	originalTime?: unknown;
 	index?: TimePointIndex;
 	point?: Point;
-	seriesData: Map<Series, SeriesPlotRow>;
-	hoveredSeries?: Series;
+	seriesData: Map<Series<SeriesType>, SeriesPlotRow<SeriesType>>;
+	hoveredSeries?: Series<SeriesType>;
 	hoveredObject?: string;
 	touchMouseEventData?: TouchMouseEventData;
 }
@@ -39,31 +43,49 @@ export type MouseEventParamsImplSupplier = () => MouseEventParamsImpl;
 
 const windowsChrome = isChromiumBased() && isWindows();
 
-export class ChartWidget implements IDestroyable {
-	private readonly _options: ChartOptionsInternal;
+export interface IChartWidgetBase {
+	getPriceAxisWidth(position: DefaultPriceScaleId): number;
+	model(): IChartModelBase;
+	paneWidgets(): PaneWidget[];
+	options(): ChartOptionsInternalBase;
+	setCursorStyle(style: string | null): void;
+}
+
+export class ChartWidget<HorzScaleItem> implements IDestroyable, IChartWidgetBase {
+	private readonly _options: ChartOptionsInternal<HorzScaleItem>;
 	private _paneWidgets: PaneWidget[] = [];
 	// private _paneSeparators: PaneSeparator[] = [];
-	private readonly _model: ChartModel;
+	private readonly _model: ChartModel<HorzScaleItem>;
 	private _drawRafId: number = 0;
 	private _height: number = 0;
 	private _width: number = 0;
 	private _leftPriceAxisWidth: number = 0;
 	private _rightPriceAxisWidth: number = 0;
-	private _element: HTMLElement;
+	private _element: HTMLDivElement;
 	private readonly _tableElement: HTMLElement;
-	private _timeAxisWidget: TimeAxisWidget;
+	private _timeAxisWidget: TimeAxisWidget<HorzScaleItem>;
 	private _invalidateMask: InvalidateMask | null = null;
 	private _drawPlanned: boolean = false;
 	private _clicked: Delegate<MouseEventParamsImplSupplier> = new Delegate();
+	private _dblClicked: Delegate<MouseEventParamsImplSupplier> = new Delegate();
 	private _crosshairMoved: Delegate<MouseEventParamsImplSupplier> = new Delegate();
 	private _onWheelBound: (event: WheelEvent) => void;
+	private _observer: ResizeObserver | null = null;
 
-	public constructor(container: HTMLElement, options: ChartOptionsInternal) {
+	private _container: HTMLElement;
+	private _cursorStyleOverride: string | null = null;
+
+	private readonly _horzScaleBehavior: IHorzScaleBehavior<HorzScaleItem>;
+
+	public constructor(container: HTMLElement, options: ChartOptionsInternal<HorzScaleItem>, horzScaleBehavior: IHorzScaleBehavior<HorzScaleItem>) {
+		this._container = container;
 		this._options = options;
+		this._horzScaleBehavior = horzScaleBehavior;
 
 		this._element = document.createElement('div');
 		this._element.classList.add('tv-lightweight-charts');
 		this._element.style.overflow = 'hidden';
+		this._element.style.direction = 'ltr';
 		this._element.style.width = '100%';
 		this._element.style.height = '100%';
 		disableSelection(this._element);
@@ -78,31 +100,26 @@ export class ChartWidget implements IDestroyable {
 		}
 		this._model = new ChartModel(
 			this._invalidateHandler.bind(this),
-			this._options
+			this._options,
+			horzScaleBehavior
 		);
 		this.model().crosshairMoved().subscribe(this._onPaneWidgetCrosshairMoved.bind(this), this);
 
-		this._timeAxisWidget = new TimeAxisWidget(this);
+		this._timeAxisWidget = new TimeAxisWidget(this, this._horzScaleBehavior);
 		this._tableElement.appendChild(this._timeAxisWidget.getElement());
 
+		const usedObserver = options.autoSize && this._installObserver();
+
+		// observer could not fire event immediately for some cases
+		// so we have to set initial size manually
 		let width = this._options.width;
 		let height = this._options.height;
-
-		if (width === 0 || height === 0) {
+		// ignore width/height options if observer has actually been used
+		// however respect options if installing resize observer failed
+		if (usedObserver || width === 0 || height === 0) {
 			const containerRect = container.getBoundingClientRect();
-			// TODO: Fix it better
-			// on Hi-DPI CSS size * Device Pixel Ratio should be integer to avoid smoothing
-			// For chart widget we decreases because we must be inside container.
-			// For time axis this is not important, since it just affects space for pane widgets
-			if (width === 0) {
-				width = Math.floor(containerRect.width);
-				width -= width % 2;
-			}
-
-			if (height === 0) {
-				height = Math.floor(containerRect.height);
-				height -= height % 2;
-			}
+			width = width || containerRect.width;
+			height = height || containerRect.height;
 		}
 
 		// BEWARE: resize must be called BEFORE _syncGuiWithModel (in constructor only)
@@ -117,11 +134,11 @@ export class ChartWidget implements IDestroyable {
 		this._model.priceScalesOptionsChanged().subscribe(this._model.fullUpdate.bind(this._model), this);
 	}
 
-	public model(): ChartModel {
+	public model(): ChartModel<HorzScaleItem> {
 		return this._model;
 	}
 
-	public options(): Readonly<ChartOptionsInternal> {
+	public options(): Readonly<ChartOptionsInternal<HorzScaleItem>> {
 		return this._options;
 	}
 
@@ -129,7 +146,7 @@ export class ChartWidget implements IDestroyable {
 		return this._paneWidgets;
 	}
 
-	public timeAxisWidget(): TimeAxisWidget {
+	public timeAxisWidget(): TimeAxisWidget<HorzScaleItem> {
 		return this._timeAxisWidget;
 	}
 
@@ -147,6 +164,7 @@ export class ChartWidget implements IDestroyable {
 		for (const paneWidget of this._paneWidgets) {
 			this._tableElement.removeChild(paneWidget.getElement());
 			paneWidget.clicked().unsubscribeAll(this);
+			paneWidget.dblClicked().unsubscribeAll(this);
 			paneWidget.destroy();
 		}
 		this._paneWidgets = [];
@@ -164,6 +182,9 @@ export class ChartWidget implements IDestroyable {
 
 		this._crosshairMoved.destroy();
 		this._clicked.destroy();
+		this._dblClicked.destroy();
+
+		this._uninstallObserver();
 	}
 
 	public resize(width: number, height: number, forceRepaint: boolean = false): void {
@@ -171,11 +192,13 @@ export class ChartWidget implements IDestroyable {
 			return;
 		}
 
-		this._height = height;
-		this._width = width;
+		const sizeHint = suggestChartSize(size({ width, height }));
 
-		const heightStr = height + 'px';
-		const widthStr = width + 'px';
+		this._height = sizeHint.height;
+		this._width = sizeHint.width;
+
+		const heightStr = this._height + 'px';
+		const widthStr = this._width + 'px';
 
 		ensureNotNull(this._element).style.height = heightStr;
 		ensureNotNull(this._element).style.width = widthStr;
@@ -204,7 +227,7 @@ export class ChartWidget implements IDestroyable {
 		}
 	}
 
-	public applyOptions(options: DeepPartial<ChartOptionsInternal>): void {
+	public applyOptions(options: DeepPartial<ChartOptionsInternal<HorzScaleItem>>): void {
 		const currentlyHasMouseWheelListener = shouldSubscribeMouseWheel(this._options);
 
 		// we don't need to merge options here because it's done in chart model
@@ -219,14 +242,15 @@ export class ChartWidget implements IDestroyable {
 
 		this._updateTimeAxisVisibility();
 
-		const width = options.width || this._width;
-		const height = options.height || this._height;
-
-		this.resize(width, height);
+		this._applyAutoSizeOptions(options);
 	}
 
 	public clicked(): ISubscription<MouseEventParamsImplSupplier> {
 		return this._clicked;
+	}
+
+	public dblClicked(): ISubscription<MouseEventParamsImplSupplier> {
+		return this._dblClicked;
 	}
 
 	public crosshairMoved(): ISubscription<MouseEventParamsImplSupplier> {
@@ -238,81 +262,16 @@ export class ChartWidget implements IDestroyable {
 			this._drawImpl(this._invalidateMask, performance.now());
 			this._invalidateMask = null;
 		}
-		// calculate target size
-		const firstPane = this._paneWidgets[0];
-		const targetCanvas = createPreconfiguredCanvas(document, new Size(this._width, this._height));
-		const ctx = getContext2D(targetCanvas);
-		const pixelRatio = getCanvasDevicePixelRatio(targetCanvas);
-		drawScaled(ctx, pixelRatio, () => {
-			let targetX = 0;
-			let targetY = 0;
 
-			const drawPriceAxises = (position: 'left' | 'right') => {
-				for (let paneIndex = 0; paneIndex < this._paneWidgets.length; paneIndex++) {
-					const paneWidget = this._paneWidgets[paneIndex];
-					const paneWidgetHeight = paneWidget.getSize().h;
-					const priceAxisWidget = ensureNotNull(position === 'left' ? paneWidget.leftPriceAxisWidget() : paneWidget.rightPriceAxisWidget());
-					const image = priceAxisWidget.getImage();
-					ctx.drawImage(image, targetX, targetY, priceAxisWidget.getWidth(), paneWidgetHeight);
-					targetY += paneWidgetHeight;
-					// if (paneIndex < this._paneWidgets.length - 1) {
-					// 	const separator = this._paneSeparators[paneIndex];
-					// 	const separatorSize = separator.getSize();
-					// 	const separatorImage = separator.getImage();
-					// 	ctx.drawImage(separatorImage, targetX, targetY, separatorSize.w, separatorSize.h);
-					// 	targetY += separatorSize.h;
-					// }
-				}
-			};
-			// draw left price scale if exists
-			if (this._isLeftAxisVisible()) {
-				drawPriceAxises('left');
-				targetX = ensureNotNull(firstPane.leftPriceAxisWidget()).getWidth();
-			}
-			targetY = 0;
-			for (let paneIndex = 0; paneIndex < this._paneWidgets.length; paneIndex++) {
-				const paneWidget = this._paneWidgets[paneIndex];
-				const paneWidgetSize = paneWidget.getSize();
-				const image = paneWidget.getImage();
-				ctx.drawImage(image, targetX, targetY, paneWidgetSize.w, paneWidgetSize.h);
-				targetY += paneWidgetSize.h;
-				// if (paneIndex < this._paneWidgets.length - 1) {
-				// 	const separator = this._paneSeparators[paneIndex];
-				// 	const separatorSize = separator.getSize();
-				// 	const separatorImage = separator.getImage();
-				// 	ctx.drawImage(separatorImage, targetX, targetY, separatorSize.w, separatorSize.h);
-				// 	targetY += separatorSize.h;
-				// }
-			}
-			targetX += firstPane.getSize().w;
-			if (this._isRightAxisVisible()) {
-				targetY = 0;
-				drawPriceAxises('right');
-			}
-			const drawStub = (position: 'left' | 'right') => {
-				const stub = ensureNotNull(position === 'left' ? this._timeAxisWidget.leftStub() : this._timeAxisWidget.rightStub());
-				const size = stub.getSize();
-				const image = stub.getImage();
-				ctx.drawImage(image, targetX, targetY, size.w, size.h);
-			};
-			// draw time scale
-			if (this._options.timeScale.visible) {
-				targetX = 0;
-				if (this._isLeftAxisVisible()) {
-					drawStub('left');
-					targetX = ensureNotNull(firstPane.leftPriceAxisWidget()).getWidth();
-				}
-				const size = this._timeAxisWidget.getSize();
-				const image = this._timeAxisWidget.getImage();
-				ctx.drawImage(image, targetX, targetY, size.w, size.h);
-				if (this._isRightAxisVisible()) {
-					targetX += firstPane.getSize().w;
-					drawStub('right');
-					ctx.restore();
-				}
-			}
-		});
-		return targetCanvas;
+		const screeshotBitmapSize = this._traverseLayout(null);
+		const screenshotCanvas = document.createElement('canvas');
+		screenshotCanvas.width = screeshotBitmapSize.width;
+		screenshotCanvas.height = screeshotBitmapSize.height;
+
+		const ctx = ensureNotNull(screenshotCanvas.getContext('2d'));
+		this._traverseLayout(ctx);
+
+		return screenshotCanvas;
 	}
 
 	public getPriceAxisWidth(position: DefaultPriceScaleId): number {
@@ -337,6 +296,151 @@ export class ChartWidget implements IDestroyable {
 		return ensureNotNull(priceAxisWidget).getWidth();
 	}
 
+	public autoSizeActive(): boolean {
+		return this._options.autoSize && this._observer !== null;
+	}
+
+	public element(): HTMLDivElement {
+		return this._element;
+	}
+
+	public setCursorStyle(style: string | null): void {
+		this._cursorStyleOverride = style;
+		if (this._cursorStyleOverride) {
+			this.element().style.setProperty('cursor', style);
+		} else {
+			this.element().style.removeProperty('cursor');
+		}
+	}
+
+	public getCursorOverrideStyle(): string | null {
+		return this._cursorStyleOverride;
+	}
+
+	public paneSize(): Size {
+		// we currently only support a single pane.
+		return ensureDefined(this._paneWidgets[0]).getSize();
+	}
+
+	// eslint-disable-next-line complexity
+	private _applyAutoSizeOptions(options: DeepPartial<ChartOptionsInternal<HorzScaleItem>>): void {
+		if (options.autoSize === undefined && this._observer && (options.width !== undefined || options.height !== undefined)) {
+			warn(`You should turn autoSize off explicitly before specifying sizes; try adding options.autoSize: false to new options`);
+			return;
+		}
+		if (options.autoSize && !this._observer) {
+			// installing observer will override resize if successful
+			this._installObserver();
+		}
+
+		if (options.autoSize === false && this._observer !== null) {
+			this._uninstallObserver();
+		}
+
+		if (!options.autoSize && (options.width !== undefined || options.height !== undefined)) {
+			this.resize(options.width || this._width, options.height || this._height);
+		}
+	}
+
+	/**
+	 * Traverses the widget's layout (pane and axis child widgets),
+	 * draws the screenshot (if rendering context is passed) and returns the screenshot bitmap size
+	 *
+	 * @param ctx - if passed, used to draw the screenshot of widget
+	 * @returns screenshot bitmap size
+	 */
+	private _traverseLayout(ctx: CanvasRenderingContext2D | null): Size {
+		let totalWidth = 0;
+		let totalHeight = 0;
+
+		const firstPane = this._paneWidgets[0];
+
+		const drawPriceAxises = (position: 'left' | 'right', targetX: number) => {
+			let targetY = 0;
+			for (let paneIndex = 0; paneIndex < this._paneWidgets.length; paneIndex++) {
+				const paneWidget = this._paneWidgets[paneIndex];
+				const priceAxisWidget = ensureNotNull(position === 'left' ? paneWidget.leftPriceAxisWidget() : paneWidget.rightPriceAxisWidget());
+				const bitmapSize = priceAxisWidget.getBitmapSize();
+				if (ctx !== null) {
+					priceAxisWidget.drawBitmap(ctx, targetX, targetY);
+				}
+				targetY += bitmapSize.height;
+				// if (paneIndex < this._paneWidgets.length - 1) {
+				// 	const separator = this._paneSeparators[paneIndex];
+				// 	const separatorBitmapSize = separator.getBitmapSize();
+				// 	if (ctx !== null) {
+				// 		separator.drawBitmap(ctx, targetX, targetY);
+				// 	}
+				// 	targetY += separatorBitmapSize.height;
+				// }
+			}
+		};
+
+		// draw left price scale if exists
+		if (this._isLeftAxisVisible()) {
+			drawPriceAxises('left', 0);
+			const leftAxisBitmapWidth = ensureNotNull(firstPane.leftPriceAxisWidget()).getBitmapSize().width;
+			totalWidth += leftAxisBitmapWidth;
+		}
+		for (let paneIndex = 0; paneIndex < this._paneWidgets.length; paneIndex++) {
+			const paneWidget = this._paneWidgets[paneIndex];
+			const bitmapSize = paneWidget.getBitmapSize();
+			if (ctx !== null) {
+				paneWidget.drawBitmap(ctx, totalWidth, totalHeight);
+			}
+			totalHeight += bitmapSize.height;
+			// if (paneIndex < this._paneWidgets.length - 1) {
+			// 	const separator = this._paneSeparators[paneIndex];
+			// 	const separatorBitmapSize = separator.getBitmapSize();
+			// 	if (ctx !== null) {
+			// 		separator.drawBitmap(ctx, totalWidth, totalHeight);
+			// 	}
+			// 	totalHeight += separatorBitmapSize.height;
+			// }
+		}
+		const firstPaneBitmapWidth = firstPane.getBitmapSize().width;
+		totalWidth += firstPaneBitmapWidth;
+
+		// draw right price scale if exists
+		if (this._isRightAxisVisible()) {
+			drawPriceAxises('right', totalWidth);
+			const rightAxisBitmapWidth = ensureNotNull(firstPane.rightPriceAxisWidget()).getBitmapSize().width;
+			totalWidth += rightAxisBitmapWidth;
+		}
+
+		const drawStub = (position: 'left' | 'right', targetX: number, targetY: number) => {
+			const stub = ensureNotNull(position === 'left' ? this._timeAxisWidget.leftStub() : this._timeAxisWidget.rightStub());
+			stub.drawBitmap(ensureNotNull(ctx), targetX, targetY);
+		};
+
+		// draw time scale and stubs
+		if (this._options.timeScale.visible) {
+			const timeAxisBitmapSize = this._timeAxisWidget.getBitmapSize();
+
+			if (ctx !== null) {
+				let targetX = 0;
+				if (this._isLeftAxisVisible()) {
+					drawStub('left', targetX, totalHeight);
+					targetX = ensureNotNull(firstPane.leftPriceAxisWidget()).getBitmapSize().width;
+				}
+
+				this._timeAxisWidget.drawBitmap(ctx, targetX, totalHeight);
+				targetX += timeAxisBitmapSize.width;
+
+				if (this._isRightAxisVisible()) {
+					drawStub('right', targetX, totalHeight);
+				}
+			}
+
+			totalHeight += timeAxisBitmapSize.height;
+		}
+
+		return size({
+			width: totalWidth,
+			height: totalHeight,
+		});
+	}
+
 	// eslint-disable-next-line complexity
 	private _adjustSizeImpl(): void {
 		let totalStretch = 0;
@@ -345,14 +449,24 @@ export class ChartWidget implements IDestroyable {
 
 		for (const paneWidget of this._paneWidgets) {
 			if (this._isLeftAxisVisible()) {
-				leftPriceAxisWidth = Math.max(leftPriceAxisWidth, ensureNotNull(paneWidget.leftPriceAxisWidget()).optimalWidth());
+				leftPriceAxisWidth = Math.max(
+					leftPriceAxisWidth,
+					ensureNotNull(paneWidget.leftPriceAxisWidget()).optimalWidth(),
+					this._options.leftPriceScale.minimumWidth
+				);
 			}
 			if (this._isRightAxisVisible()) {
-				rightPriceAxisWidth = Math.max(rightPriceAxisWidth, ensureNotNull(paneWidget.rightPriceAxisWidget()).optimalWidth());
+				rightPriceAxisWidth = Math.max(
+					rightPriceAxisWidth,
+					ensureNotNull(paneWidget.rightPriceAxisWidget()).optimalWidth(),
+					this._options.rightPriceScale.minimumWidth
+				);
 			}
-
 			totalStretch += paneWidget.stretchFactor();
 		}
+
+		leftPriceAxisWidth = suggestPriceScaleWidth(leftPriceAxisWidth);
+		rightPriceAxisWidth = suggestPriceScaleWidth(rightPriceAxisWidth);
 
 		const width = this._width;
 		const height = this._height;
@@ -363,12 +477,9 @@ export class ChartWidget implements IDestroyable {
 		// const separatorHeight = SEPARATOR_HEIGHT;
 		const separatorsHeight = 0; // separatorHeight * separatorCount;
 		const timeAxisVisible = this._options.timeScale.visible;
-		let timeAxisHeight = timeAxisVisible ? this._timeAxisWidget.optimalHeight() : 0;
-		// TODO: Fix it better
-		// on Hi-DPI CSS size * Device Pixel Ratio should be integer to avoid smoothing
-		if (timeAxisHeight % 2) {
-			timeAxisHeight += 1;
-		}
+		let timeAxisHeight = timeAxisVisible ? Math.max(this._timeAxisWidget.optimalHeight(), this._options.timeScale.minimumHeight) : 0;
+		timeAxisHeight = suggestTimeScaleHeight(timeAxisHeight);
+
 		const otherWidgetHeight = separatorsHeight + timeAxisHeight;
 		const totalPaneHeight = height < otherWidgetHeight ? 0 : height - otherWidgetHeight;
 		const stretchPixels = totalPaneHeight / totalStretch;
@@ -391,7 +502,7 @@ export class ChartWidget implements IDestroyable {
 
 			accumulatedHeight += paneHeight;
 
-			paneWidget.setSize(new Size(paneWidth, paneHeight));
+			paneWidget.setSize(size({ width: paneWidth, height: paneHeight }));
 			if (this._isLeftAxisVisible()) {
 				paneWidget.setPriceAxisSize(leftPriceAxisWidth, 'left');
 			}
@@ -405,7 +516,7 @@ export class ChartWidget implements IDestroyable {
 		}
 
 		this._timeAxisWidget.setSizes(
-			new Size(timeAxisVisible ? paneWidth : 0, timeAxisHeight),
+			size({ width: timeAxisVisible ? paneWidth : 0, height: timeAxisHeight }),
 			timeAxisVisible ? leftPriceAxisWidth : 0,
 			timeAxisVisible ? rightPriceAxisWidth : 0
 		);
@@ -605,6 +716,7 @@ export class ChartWidget implements IDestroyable {
 			const paneWidget = ensureDefined(this._paneWidgets.pop());
 			this._tableElement.removeChild(paneWidget.getElement());
 			paneWidget.clicked().unsubscribeAll(this);
+			paneWidget.dblClicked().unsubscribeAll(this);
 			paneWidget.destroy();
 
 			// const paneSeparator = this._paneSeparators.pop();
@@ -617,6 +729,7 @@ export class ChartWidget implements IDestroyable {
 		for (let i = actualPaneWidgetsCount; i < targetPaneWidgetsCount; i++) {
 			const paneWidget = new PaneWidget(this, panes[i]);
 			paneWidget.clicked().subscribe(this._onPaneWidgetClicked.bind(this), this);
+			paneWidget.dblClicked().subscribe(this._onPaneWidgetDblClicked.bind(this), this);
 
 			this._paneWidgets.push(paneWidget);
 
@@ -645,11 +758,15 @@ export class ChartWidget implements IDestroyable {
 		this._adjustSizeImpl();
 	}
 
-	private _getMouseEventParamsImpl(index: TimePointIndex | null, event: TouchMouseEventData | null): MouseEventParamsImpl {
-		const seriesData = new Map<Series, SeriesPlotRow>();
+	private _getMouseEventParamsImpl(
+		index: TimePointIndex | null,
+		point: Point | null,
+		event: TouchMouseEventData | null
+	): MouseEventParamsImpl {
+		const seriesData = new Map<Series<SeriesType>, SeriesPlotRow<SeriesType>>();
 		if (index !== null) {
 			const serieses = this._model.serieses();
-			serieses.forEach((s: Series) => {
+			serieses.forEach((s: Series<SeriesType>) => {
 				// TODO: replace with search left
 				const data = s.bars().search(index);
 				if (data !== null) {
@@ -657,7 +774,7 @@ export class ChartWidget implements IDestroyable {
 				}
 			});
 		}
-		let clientTime: OriginalTime | undefined;
+		let clientTime: unknown | undefined;
 		if (index !== null) {
 			const timePoint = this._model.timeScale().indexToTimeScalePoint(index)?.originalTime;
 			if (timePoint !== undefined) {
@@ -676,9 +793,9 @@ export class ChartWidget implements IDestroyable {
 			: undefined;
 
 		return {
-			time: clientTime,
+			originalTime: clientTime,
 			index: index ?? undefined,
-			point: event ? { x: event.localX, y: event.localY } : undefined,
+			point: point ?? undefined,
 			hoveredSeries,
 			seriesData,
 			hoveredObject,
@@ -686,12 +803,28 @@ export class ChartWidget implements IDestroyable {
 		};
 	}
 
-	private _onPaneWidgetClicked(time: TimePointIndex | null, event: TouchMouseEventData): void {
-		this._clicked.fire(() => this._getMouseEventParamsImpl(time, event));
+	private _onPaneWidgetClicked(
+		time: TimePointIndex | null,
+		point: Point | null,
+		event: TouchMouseEventData
+	): void {
+		this._clicked.fire(() => this._getMouseEventParamsImpl(time, point, event));
 	}
 
-	private _onPaneWidgetCrosshairMoved(time: TimePointIndex | null, event: TouchMouseEventData | null): void {
-		this._crosshairMoved.fire(() => this._getMouseEventParamsImpl(time, event));
+	private _onPaneWidgetDblClicked(
+		time: TimePointIndex | null,
+		point: Point | null,
+		event: TouchMouseEventData
+	): void {
+		this._dblClicked.fire(() => this._getMouseEventParamsImpl(time, point, event));
+	}
+
+	private _onPaneWidgetCrosshairMoved(
+		time: TimePointIndex | null,
+		point: Point | null,
+		event: TouchMouseEventData | null
+	): void {
+		this._crosshairMoved.fire(() => this._getMouseEventParamsImpl(time, point, event));
 	}
 
 	private _updateTimeAxisVisibility(): void {
@@ -705,6 +838,31 @@ export class ChartWidget implements IDestroyable {
 
 	private _isRightAxisVisible(): boolean {
 		return this._paneWidgets[0].state().rightPriceScale().options().visible;
+	}
+
+	private _installObserver(): boolean {
+		// eslint-disable-next-line no-restricted-syntax
+		if (!('ResizeObserver' in window)) {
+			warn('Options contains "autoSize" flag, but the browser does not support ResizeObserver feature. Please provide polyfill.');
+			return false;
+		} else {
+			this._observer = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+				const containerEntry = entries.find((entry: ResizeObserverEntry) => entry.target === this._container);
+				if (!containerEntry) {
+					return;
+				}
+				this.resize(containerEntry.contentRect.width, containerEntry.contentRect.height);
+			});
+			this._observer.observe(this._container, { box: 'border-box' });
+			return true;
+		}
+	}
+
+	private _uninstallObserver(): void {
+		if (this._observer !== null) {
+			this._observer.disconnect();
+		}
+		this._observer = null;
 	}
 }
 
@@ -721,6 +879,6 @@ function disableSelection(element: HTMLElement): void {
 	(element.style as any).webkitTapHighlightColor = 'transparent';
 }
 
-function shouldSubscribeMouseWheel(options: ChartOptionsInternal): boolean {
+function shouldSubscribeMouseWheel<HorzScaleItem>(options: ChartOptionsInternal<HorzScaleItem>): boolean {
 	return Boolean(options.handleScroll.mouseWheel || options.handleScale.mouseWheel);
 }
